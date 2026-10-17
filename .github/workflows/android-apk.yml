@@ -1,4 +1,4 @@
-
+u
 name: Build Rise With The Word APK
 
 on:
@@ -33,6 +33,9 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found project: $PROJECT_DIR"
+          
+          - name: ChatGPT Integration
+  uses: kxxt/chatgpt-action@v0.3
 
       - name: Set up Python
         uses: actions/setup-python@v5
