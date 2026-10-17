@@ -1,3 +1,4 @@
+
 name: Build Rise With The Word APK
 
 on:
@@ -20,38 +21,39 @@ jobs:
 
       - name: Unpack Android project ZIP
         run: |
+          set -euo pipefail
           unzip -q Rise_With_The_Word_Android_Studio_Project.zip -d project
+
           PROJECT_DIR="$(dirname "$(find project -type f -name settings.gradle.kts -print -quit)")"
+
           if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "Android project files were not found in the ZIP."
+            echo "Android project files not found in ZIP."
             exit 1
           fi
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found Android project at: $PROJECT_DIR"
+          echo "Found project: $PROJECT_DIR"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-          
+
       - name: Bundle full offline Catholic Bible
-        env:
-          BIBLE_SOURCE_COMMIT: cd4439a1b5bbf2abe253d68b0896c3c60e8f27bc
         run: |
           set -euo pipefail
+
           mkdir -p "$RUNNER_TEMP/odr-source"
 
-          curl --fail --show-error --location --retry 3 \
-            "https://github.com/janvier-s/original-douay-rheims/archive/${BIBLE_SOURCE_COMMIT}.zip" \
-            --output "$RUNNER_TEMP/odr-source.zip"
+          git clone --depth 1 \
+            https://github.com/janvier-s/original-douay-rheims.git \
+            "$RUNNER_TEMP/odr-source/repo"
 
-          unzip -tq "$RUNNER_TEMP/odr-source.zip"
-          unzip -q "$RUNNER_TEMP/odr-source.zip" -d "$RUNNER_TEMP/odr-source"
+          DATA_ROOT="$RUNNER_TEMP/odr-source/repo"
 
-          DATA_ROOT="$(dirname "$(find "$RUNNER_TEMP/odr-source" -type f -name manifest.json -print -quit)")"
-
-          if [ -z "$DATA_ROOT" ] || [ ! -d "$DATA_ROOT/bible/raw" ]; then
-            echo "Could not locate the Bible dataset after extraction."
+          if [ ! -f "$DATA_ROOT/manifest.json" ] || \
+             [ ! -d "$DATA_ROOT/bible/raw" ]; then
+            echo "Bible dataset is missing required files."
             exit 1
           fi
 
@@ -60,7 +62,6 @@ jobs:
             "$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
 
           test -s "$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
-
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -80,12 +81,12 @@ jobs:
           import os
 
           p = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle.kts"
-          s = p.read_text(encoding="utf-8")
+          s = p.read_text()
 
           if "sourceCompatibility = JavaVersion.VERSION_17" not in s:
               marker = "    defaultConfig {"
               if marker not in s:
-                  raise SystemExit("Could not find defaultConfig in app/build.gradle.kts")
+                  raise SystemExit("Could not find defaultConfig")
               insert = """    compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
@@ -97,7 +98,7 @@ jobs:
           if 'jvmTarget = "17"' not in s:
               marker = "    defaultConfig {"
               if marker not in s:
-                  raise SystemExit("Could not find defaultConfig for Kotlin compatibility")
+                  raise SystemExit("Could not find defaultConfig for Kotlin")
               insert = """    kotlinOptions {
                   jvmTarget = "17"
               }
@@ -105,7 +106,7 @@ jobs:
           """
               s = s.replace(marker, insert + marker, 1)
 
-          p.write_text(s, encoding="utf-8")
+          p.write_text(s)
           print("Java and Kotlin targets configured for JVM 17.")
           PY
 
