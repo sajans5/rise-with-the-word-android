@@ -33,24 +33,34 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-
+          
       - name: Bundle full offline Catholic Bible
         env:
           BIBLE_SOURCE_COMMIT: cd4439a1b5bbf2abe253d68b0896c3c60e8f27bc
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/odr-source"
-          curl --fail --location --retry 3 --retry-delay 2 \
-            "https://codeload.github.com/janvier-s/original-douay-rheims/zip/${BIBLE_SOURCE_COMMIT}" \
+
+          curl --fail --show-error --location --retry 3 \
+            "https://github.com/janvier-s/original-douay-rheims/archive/${BIBLE_SOURCE_COMMIT}.zip" \
             --output "$RUNNER_TEMP/odr-source.zip"
+
+          unzip -tq "$RUNNER_TEMP/odr-source.zip"
           unzip -q "$RUNNER_TEMP/odr-source.zip" -d "$RUNNER_TEMP/odr-source"
+
           DATA_ROOT="$(dirname "$(find "$RUNNER_TEMP/odr-source" -type f -name manifest.json -print -quit)")"
+
           if [ -z "$DATA_ROOT" ] || [ ! -d "$DATA_ROOT/bible/raw" ]; then
-            echo "Could not locate the public-domain Bible dataset."
+            echo "Could not locate the Bible dataset after extraction."
             exit 1
           fi
-          python "$PROJECT_DIR/tools/build_bible.py" "$DATA_ROOT" "$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
+
+          python "$PROJECT_DIR/tools/build_bible.py" \
+            "$DATA_ROOT" \
+            "$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
+
           test -s "$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
+
 
       - name: Set up Java
         uses: actions/setup-java@v4
