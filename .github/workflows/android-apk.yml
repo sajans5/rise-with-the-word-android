@@ -45,17 +45,15 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Fetch pinned public-domain Bible source
-        env:
-          BIBLE_SOURCE_COMMIT: cd4439a1b5bbf2abe253d68b0896c3c60e8f27bc
+      - name: Fetch public-domain Bible source
         shell: bash
         run: |
           set -euo pipefail
           SOURCE_DIR="$RUNNER_TEMP/original-douay-rheims"
-          git clone --filter=blob:none https://github.com/janvier-s/original-douay-rheims.git "$SOURCE_DIR"
-          git -C "$SOURCE_DIR" checkout --detach "$BIBLE_SOURCE_COMMIT"
+          git clone --depth 1 https://github.com/janvier-s/original-douay-rheims.git "$SOURCE_DIR"
           if [ ! -f "$SOURCE_DIR/manifest.json" ] || [ ! -d "$SOURCE_DIR/bible/raw" ]; then
-            echo "Pinned Bible checkout is missing manifest.json or bible/raw."
+            echo "Bible repository checkout is missing manifest.json or bible/raw."
+            echo "Check the repository's current default branch and data layout."
             exit 1
           fi
           echo "BIBLE_DATA_ROOT=$SOURCE_DIR" >> "$GITHUB_ENV"
