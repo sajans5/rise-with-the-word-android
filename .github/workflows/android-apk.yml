@@ -1,5 +1,6 @@
 name: Build Rise With The Word APK
 
+# Run it from the Actions tab (Run workflow), or it runs automatically when you upload a new project ZIP.
 on:
   workflow_dispatch:
   push:
@@ -14,7 +15,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Get project files
+      - name: Get repository files
         uses: actions/checkout@v4
 
       - name: Unpack Android project ZIP
@@ -23,7 +24,7 @@ jobs:
           set -euo pipefail
           PROJECT_ZIP="Rise_With_The_Word_Android_Studio_Project.zip"
           if [ ! -f "$PROJECT_ZIP" ]; then
-            echo "Missing $PROJECT_ZIP at the repository root."
+            echo "Missing $PROJECT_ZIP at the repository root. Upload the ZIP with exactly this name."
             exit 1
           fi
           unzip -q "$PROJECT_ZIP" -d project
@@ -33,43 +34,43 @@ jobs:
             exit 1
           fi
           PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
-          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "Android app/build.gradle.kts not found under $PROJECT_DIR."
-            exit 1
-          fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Found Android project at: $PROJECT_DIR"
+
+      - name: Check the app's JavaScript for typing mistakes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in "$PROJECT_DIR"/app/src/main/assets/js/*.js; do
+            node --check "$f"
+          done
+          echo "All JavaScript files passed the syntax check."
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: Fetch public-domain Bible source
+      - name: Fetch public-domain Bible source (Douay-Rheims, CC0)
         shell: bash
         run: |
           set -euo pipefail
           SOURCE_DIR="$RUNNER_TEMP/original-douay-rheims"
-          git clone --depth 1 https://github.com/janvier-s/original-douay-rheims.git "$SOURCE_DIR"
+          git clone https://github.com/janvier-s/original-douay-rheims.git "$SOURCE_DIR"
+          # Pin to the exact version this app was tested with (falls back to latest if unavailable).
+          git -C "$SOURCE_DIR" checkout cd4439a1b5bbf2abe253d68b0896c3c60e8f27bc || echo "Pinned commit not found; using latest."
           if [ ! -f "$SOURCE_DIR/manifest.json" ] || [ ! -d "$SOURCE_DIR/bible/raw" ]; then
-            echo "Bible repository checkout is missing manifest.json or bible/raw."
-            echo "Check the repository's current default branch and data layout."
+            echo "Bible repository is missing manifest.json or bible/raw."
             exit 1
           fi
           echo "BIBLE_DATA_ROOT=$SOURCE_DIR" >> "$GITHUB_ENV"
 
-      - name: Bundle full offline Bible data
+      - name: Bundle the complete offline Bible into the app
         shell: bash
         run: |
           set -euo pipefail
-          BUILDER="$PROJECT_DIR/tools/build_bible.py"
           OUTPUT="$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
-          if [ ! -f "$BUILDER" ]; then
-            echo "Bible builder not found: $BUILDER"
-            exit 1
-          fi
-          mkdir -p "$(dirname "$OUTPUT")"
-          python "$BUILDER" "$BIBLE_DATA_ROOT" "$OUTPUT"
+          python "$PROJECT_DIR/tools/build_bible.py" "$BIBLE_DATA_ROOT" "$OUTPUT"
           test -s "$OUTPUT"
 
       - name: Set up Java
@@ -83,50 +84,13 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Align Java and Kotlin targets
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-
-          path = Path(os.environ["PROJECT_DIR"]) / "app/build.gradle.kts"
-          source = path.read_text(encoding="utf-8")
-          if "sourceCompatibility = JavaVersion.VERSION_17" not in source:
-              marker = "    defaultConfig {"
-              if marker not in source:
-                  raise SystemExit("Could not find defaultConfig in app/build.gradle.kts")
-              block = (
-                  "    compileOptions {\n"
-                  "        sourceCompatibility = JavaVersion.VERSION_17\n"
-                  "        targetCompatibility = JavaVersion.VERSION_17\n"
-                  "    }\n\n"
-              )
-              source = source.replace(marker, block + marker, 1)
-
-          if 'jvmTarget = "17"' not in source:
-              marker = "    defaultConfig {"
-              if marker not in source:
-                  raise SystemExit("Could not find defaultConfig for Kotlin target")
-              block = (
-                  "    kotlinOptions {\n"
-                  '        jvmTarget = "17"\n'
-                  "    }\n\n"
-              )
-              source = source.replace(marker, block + marker, 1)
-
-          path.write_text(source, encoding="utf-8")
-          print("Java and Kotlin targets set to JVM 17.")
-          PY
-
       - name: Build debug APK
         run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Rise-With-The-Word-debug-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
