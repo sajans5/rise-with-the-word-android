@@ -2,7 +2,6 @@ name: Build Rise With The Word APK
 
 on:
   workflow_dispatch:
-
   push:
     paths:
       - "Rise_With_The_Word_Android_Studio_Project.zip"
@@ -18,7 +17,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     defaults:
       run:
         shell: bash
@@ -30,121 +28,72 @@ jobs:
       - name: Extract Android project
         run: |
           set -euo pipefail
-
           PROJECT_ZIP="Rise_With_The_Word_Android_Studio_Project.zip"
-
-          if [[ ! -f "$PROJECT_ZIP" ]]; then
-            echo "Missing $PROJECT_ZIP"
-            exit 1
-          fi
-
+          test -f "$PROJECT_ZIP" || { echo "Missing $PROJECT_ZIP"; exit 1; }
           unzip -q "$PROJECT_ZIP" -d project
-
-          SETTINGS_FILE=$(find project -type f -name settings.gradle.kts -print -quit)
-
-          if [[ -z "$SETTINGS_FILE" ]]; then
-            echo "Could not locate settings.gradle.kts"
-            exit 1
-          fi
-
+          SETTINGS_FILE="$(find project -type f -name settings.gradle.kts -print -quit)"
+          test -n "$SETTINGS_FILE" || { echo "Could not locate settings.gradle.kts"; exit 1; }
           PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
-
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
           echo "Found Android project at $PROJECT_DIR"
-
           test -f "$PROJECT_DIR/tools/build_bible.py"
 
       - name: Validate JavaScript syntax
         run: |
           set -euo pipefail
           shopt -s nullglob
-
-          JS_FILES=(
-            "$PROJECT_DIR"/app/src/main/assets/js/*.js
-          )
-
+          JS_FILES=("$PROJECT_DIR"/app/src/main/assets/js/*.js)
           if [[ ${#JS_FILES[@]} -eq 0 ]]; then
             echo "No JavaScript files found."
-          else
-            for file in "${JS_FILES[@]}"; do
-              echo "Checking $file"
-              node --check "$file"
-            done
+            exit 1
           fi
-
-          echo "JavaScript validation completed."
+          for file in "${JS_FILES[@]}"; do node --check "$file"; done
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Fetch Douay-Rheims source
+      - name: Fetch pinned Douay-Rheims source
         run: |
           set -euo pipefail
-
           SOURCE_DIR="$RUNNER_TEMP/original-douay-rheims"
-
-          git clone \
-            https://github.com/janvier-s/original-douay-rheims.git \
-            "$SOURCE_DIR"
-
-          git -C "$SOURCE_DIR" checkout \
-            cd4439a1b5bbf2abe253d68b0896c3c60e8f27bc \
-            || echo "Pinned commit unavailable; continuing."
-
+          git clone https://github.com/janvier-s/original-douay-rheims.git "$SOURCE_DIR"
+          # Fail rather than silently building from an unreviewed moving branch.
+          git -C "$SOURCE_DIR" checkout d82b2852d55a2ab8f0e57311ee42acde25740781
           test -f "$SOURCE_DIR/manifest.json"
           test -d "$SOURCE_DIR/bible/raw"
-
           echo "BIBLE_DATA_ROOT=$SOURCE_DIR" >> "$GITHUB_ENV"
 
       - name: Generate offline Bible data
         run: |
           set -euo pipefail
-
           OUTPUT="$PROJECT_DIR/app/src/main/assets/bible-full-data.js"
-
-          python \
-            "$PROJECT_DIR/tools/build_bible.py" \
-            "$BIBLE_DATA_ROOT" \
-            "$OUTPUT"
-
+          python "$PROJECT_DIR/tools/build_bible.py" "$BIBLE_DATA_ROOT" "$OUTPUT"
           test -s "$OUTPUT"
 
-          echo "Bible data generated successfully."
-
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
-      - name: Make Gradle wrapper executable
-        run: |
-          chmod +x "$PROJECT_DIR/gradlew"
-
-      - name: Verify Gradle wrapper
-        run: |
-          "$PROJECT_DIR/gradlew" --version
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
 
       - name: Build debug APK
         run: |
-          "$PROJECT_DIR/gradlew" \
-            -p "$PROJECT_DIR" \
-            --no-daemon \
-            assembleDebug
+          set -euo pipefail
+          gradle --version
+          gradle -p "$PROJECT_DIR" --no-daemon assembleDebug
 
       - name: Verify APK exists
         run: |
+          set -euo pipefail
           APK_PATH="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-
-          if [[ ! -f "$APK_PATH" ]]; then
-            echo "APK was not generated."
-            exit 1
-          fi
-
+          test -f "$APK_PATH" || { echo "APK was not generated."; exit 1; }
           ls -lh "$APK_PATH"
 
       - name: Upload APK
